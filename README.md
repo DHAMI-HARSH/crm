@@ -1,36 +1,56 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# GrowEasy CRM CSV Importer
 
-## Getting Started
+AI-powered CSV importer for messy real estate lead exports. The app parses a CSV in the browser, previews it without an AI call, then sends confirmed rows to a Next.js route handler that batches rows and asks NVIDIA NIM to normalize them into the GrowEasy CRM schema.
 
-First, run the development server:
+## Setup
+
+```bash
+npm install
+cp .env.example .env
+npm run dev
+```
+
+Open `http://localhost:3000`.
+
+## Environment
+
+- `NVIDIA_API_KEY`: API key from NVIDIA NIM at build.nvidia.com.
+- `NVIDIA_BASE_URL`: OpenAI-compatible endpoint. Defaults to `https://integrate.api.nvidia.com/v1`.
+- `AI_MODEL`: NVIDIA model with tool/function calling support. Defaults to `nvidia/llama-3.3-nemotron-super-49b-v1`.
+
+## Commands
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm run build
+npm start
+npm test
+npm run lint
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Docker
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+docker compose up --build
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The container builds with `npm run build` and runs with `npm start` on port `3000`.
 
-## Learn More
+## Prompt Design
 
-To learn more about Next.js, take a look at the following resources:
+The extraction prompt tells the model that headers are arbitrary and may come from Facebook, Google Ads, real estate CRMs, or hand-written spreadsheets. It gives concrete mapping hints such as `Contact No`/`Ph.` to `mobile_without_country_code` and `Locality`/`Area` to `city`, includes the allowed `crm_status` and `data_source` enum values, and instructs the model to leave uncertain enum fields blank. Extra IDs, notes, campaign fragments, and ambiguous text are preserved in `crm_note`.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+The server first requests a structured `submit_crm_records` tool call. If the model does not return valid tool-call JSON, it retries with a strict JSON-only fallback prompt. Every response is Zod-validated, enums and dates are re-checked in deterministic code, rows without both email and phone are skipped, and extra emails/phones are merged into notes.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Messy CSV Smoke Sample
 
-## Deploy on Vercel
+Use a sample like this to exercise the full flow:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```csv
+Name,Contact No,Email,Locality,Campaign,Notes
+Anika Rao,"+91 98765 43210 / 080-4567-1234","anika@example.com; alt@example.com",Sarjapur,FB July,"Looking for 2BHK"
+Missing Person,,,Unknown,,No contact details
+R. Menon,9988776655,,Whitefield,Google Search,"Asked about Eden Park"
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+With valid NVIDIA credentials, the first and third rows should import, and the second should be skipped for missing email and phone.
